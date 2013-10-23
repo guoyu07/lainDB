@@ -172,7 +172,168 @@ db_fetch(DBHANDLE h, const char *key)
 	DB	*db = h;
 	char *ptr;
 
-	if (_db_find_and_lock(db, key, 0) < 0)
+	if (_db_find_and_lock(db, key, 0) < 0) {
+		ptr = NULL;
+		db->cnt_fetcherr++;
+	} else {
+		ptr = _db_readdat(db);
+		db->cnt_fetchok++;
+	}
+
+	if (un_lock(db->idxfd, db->chainof, SEEK_SET, 1) < 0)
+		err_dump("db_fetch: un_lock error");
+	return (ptr);
+}
+
+static int
+_db_find_and_lock(DB *db, const char *key, int writelock)
+{
+	off_t	offset, nextoffset;
+
+	db->chainoff = (_db_hash(db, key) * PTR_SZ) + db->hashoff;
+	db->ptroff = db->chainoff;
+
+	if (writelock) {
+		if (writew_lock(db->idxfd, db->chainoff, SEEK_SET, 1) < 0)
+			err_dump("_db_find_and_lock: writew_lock error");
+	} else {
+		if (readw_lock(db->idxfd, db->chainoff, SEEK_SET, 1) < 0)
+			err_dump("_db_find_and_lock: readw_lock error");
+	}
+
+	while (offset != 0) {
+		nextoffset = _db_readidx(db, offset);
+		if (strcmp(db->idxbuf, key) == 0)
+			break;
+		db->ptroff = offset;
+		offset = nextoffset;
+	}
+
+	return (offset == 0 ? -1 : 0);
+}
+
+static DBHASH
+_db_hash(DB *db, const char *key)
+{
+	DBHASH	hval = 0;
+	char	c;
+	int		i;
+
+	for (i = 1; (c = *key++) != 0; i++)
+		hval += c * i;
+	return (hval % db->nhash);
+}
+
+static off_t
+_db_readptr(DB *db, off_t offset)
+{
+	char	asciiptr[PTR_SZ + 1];
+
+	if (lseek(db->idxfd, offset, SEEK_SET) == -1)
+		err_dump("_db_readptr: lseek error to ptr field");
+	if (read(db->idxfd, asciiptr, PTR_SZ) != PTR_SZ)
+		err_dump("_db_readptr: read error of ptr field");
+	asciiptr[PTR_SZ] = 0;
+	return (atol(asciiptr));
+}
+
+static off_t
+_db_readidx(DB *db, off_t offset)
+{
+	ssize_t	i;
+	char	*ptr1, *ptr2;
+	char	asciiptr[PTR_SZ + 1], asciilen[IDXLEN_SZ + 1];
+	struct iovec	iov[2];
+
+	if ((db->idxoff = lseek(db->idxfd, offset, offset == 0 ? SEEK_CUR : SEEK_SET)) == -1)
+		err_dump("_db_readidx: lseek error");
+
+	iov[0].iov_base = asciiptr;
+	iov[0].iov_len = PTR_SZ;
+	iov[0].iov_base = asciilen;
+	iov[0].iov_len = IDXLEN_SZ;
+	if ((i = readv(db->idxfd, &iov[0], 2)) != PTR_SZ + IDXLEN_SZ){
+		if(i == 0 && offset == 0)
+			return(-1);
+		err_dump("_db_readidx: readv error of index record");
+	}
+
+	asciiptr[PTR_SZ] = 0;
+	db->ptrval = atol(asciiptr);
+
+	asciilen[IDXLEN_SZ] = 0;
+	if ((db->idxlen = atoi(asciilen)) < IDXLEN_MIN || db->idxlen > IDXLEN_MAX)
+		err_dump("_db_readidx: invalid length");
+	
+	if ((i = read(db->idxfd, db->idxbuf, db->idxlen)) != db->idxlen)
+		err_dump("_db_readidx: read error of index record");
+	if (db->idxbuf[db->idxlen-1] != NEWLINE)
+		err_dump("_db_readidx: missing newline");
+	db->idxbuf[db->idxlen-1] = 0;
+		
+	if ((ptr = strchr(db->idxbuf, SEP)) == NULL)
+		err_dump("_db_readidx: missing first separator");
+	*ptr1++ = 0;
+
+	if (strchr(ptr2, SEP) != NULL)
+		err_dump("_db_readidx: too many separators");
+
+	if ((db->datoff = atol(ptr1)) < 0)
+		err_dump("_db_readidx: starting offset < 0");
+	if ((db->datlen = atol(ptr2)) <= 0 || db->datlen > DATLEN_MAX)
+		err_dump("_db_readidx: invalid length");
+	return (db->ptrval);
+}
+
+static char *
+_db_readdat(DB *db)
+{
+	if (lseek(db->datfd, db->datoff, SEEK_SET) == -1)
+		err_dump("_db_readdat: lseek error");
+	if (read(db->datfd, db->datbuf, db->datlen) != db->datlen)
+		err_dump("_db_readdat: read error");
+	if (db->datbuf[db->datlen-1] != NEWLINE)
+		err_dump("_db_readdat: missing newline");
+	db->datbuf[db->datlen-1] = 0;
+	return (db->datbuf);
+}
+
+int
+db_delete(DBHANDLE h, const char *key)
+{
+	DB	*db = h;
+	int	rc = 0;
+
+	if (_db_find_and_lock(db, key, 1) == 0){
+		_db_dodelete(db);
+		db->cnt_delok++;
+	} else {
+		rc = -1;
+		db->cnt_delerr++;
+	}
+	if (un_lock(db->idxfd, db->chainoff, SEEK_SET, -1) < 0)
+		err_dump("db_delete: un_lock error");
+	return (rc);
+}
+
+static void
+_db_dodelete(DB *db)
+{
+	int		i;
+	char	*ptr;
+	off_t	freeptr, saveptr;
+
+	for (ptr = db->datbuf, i = 0; i < db->datlen - 1; i++)
+		*ptr++ = SPACE;
+	*ptr = 0;
+	ptr = db->idxbuf;
+	while (*ptr)
+		*ptr++ = SPACE;
+
+	if (writew_lock(db->idxfd, FREE_OFF, SEEK_SET, 1) < 0)
+		err_dump("_db_dodelete: writew_lock error");
+
+	_db_writedat(db, db->datbuf, db->datoff, SEEK_SET);
 }
 
 
