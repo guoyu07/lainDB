@@ -334,7 +334,84 @@ _db_dodelete(DB *db)
 		err_dump("_db_dodelete: writew_lock error");
 
 	_db_writedat(db, db->datbuf, db->datoff, SEEK_SET);
+
+	freeptr = _db_readptr(db, FREE_OFF);
+
+	saveptr = db->ptrval;
+
+	_db_writeidx(db, FREE_OFF, db->idxoff);
+
+	_db_writeptr(db, db->ptroff, saveptr);
+	if (un_lock(db->idxfd, FREE_OFF, SEEK_SET, 1) < 0)
+		err_dump("_db_dodelete: un_lock error");
 }
+
+static void
+_db_writedat(DB *db, const char *data, off_t offset, int whence)
+{
+	struct iovec	iov[2];
+	static char		newline = NEWLINE;
+
+	if (whence == SEEK_END)
+		if (writew_lock(db->datfd, 0, SEEK_SET, 0) < 0)
+			err_dump("_db_writedat: writew_lock error");
+
+	if ((db->datoff = lseek(db->datfd, offset, whence)) == -1)
+		err_dump("_db_writedat: lseek error");
+	db->datlen = strlen(data) + 1;
+	
+	iov[0].iov_base = (char *) data;
+	iov[0].iov_len = db->datlen - 1;
+	iov[1].iov_base = &newline;
+	iov[1].iov_len = 1;
+	if (writev(db->datfd, &iov[0],2) != db->datlen)
+		err_dump("_db_writedat: writev error of data record");
+
+	if (whence == SEEK_END)
+		if (un_lock(db->datfd, 0, SEEK_SET, 0) < 0)
+			err_dump("_db_writedat: un_lock error");
+
+}
+
+static void
+_db_writeidx(DB *db, const char *key, off_t offset, int whence, off_t ptrval)
+{
+	struct iovec	iov[2];
+	char			asciiptrlen[PTR_SZ + IDXLEN_SZ + 1];
+	int				len;
+	char			*fmt;
+
+	if ((db->ptrval = ptrval) < 0 || ptrval > PTR_MAX)
+		err_quit("_db_writeidx: invalid ptr: %d", ptrval);
+	if (sizeof(off_t) == sizeof(long long))
+		fmt = "%s%c%lld%c%d\n";
+	else 
+		fmt = "%s%c%ld%c%d\n";
+	sprintf(db->idxbuf, fmt, key, SEP, db->datoff, SEP, db->datlen);
+	if ((len = strlen(db->idxbuf)) < IDXLEN_MIN || len > IDXLEN_MAX)
+		err_dump("_db_writeidx: invalid length");
+	sprintf(asciiptrlen, "%*ld%*d", PTR_SZ, ptrval, IDXLEN_SZ, len);
+
+	if (whence == SEEK_END)
+		if (writew_lock(db->idxfd, ((db->nhash+1)*PTR_SZ)+1, SEEK_SET, 0) < 0)
+			err_dump("_db_writeidx: writew_lock error");
+	
+	if ((db->idxoff = lseek(db->idxfd, offet, whence)) == -1)
+		err_dump("_db_writeidx: lseek error");
+
+	iov[0].iov_base = asciiptrlen;
+	iov[0].iov_len = PTR_SZ + IDXLEN_SZ;
+	iov[0].iov_base = db->idxbuf;
+	iov[0].iov_len = len;
+	if (writev(db->idxfd, &iov[0], 2) != PTR_SZ + IDXLEN_SZ + len)
+		err_dump("_db_writeidx: writev error of index record");
+		
+	if (whence == SEEK_END)
+		if (un_lock(db->idxfd, ((db->nhash + 1)*PTR_SZ)+1, SEEK_SET, 0) < 0)
+			err_dump("_db_writeidx: un_lock error");
+}
+
+
 
 
 
