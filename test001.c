@@ -5,12 +5,11 @@
 #include <errno.h>
 #include <sys/uio.h>
 #include "src/db.c"
-#include "src/error.c"
 
 int main(int argc, char* argv[]){
 	DBHANDLE	db;
 
-	if ((db = db_open("data/db4", O_RDWR | O_CREAT | O_TRUNC, FILE_MODE)) == NULL)
+	if ((db = db_open("data/db1", O_RDWR | O_CREAT | O_TRUNC, FILE_MODE)) == NULL)
 		err_sys("db_open error");
 
 	printf("%p\n", db);
