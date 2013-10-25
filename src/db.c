@@ -24,11 +24,12 @@ typedef struct {
 	int		datfd;
 	char	*idxbuf;
 	char	*datbuf;
+	char	*name;
 	off_t	idxoff;
 
 	size_t	idxlen;
 
-	off_t_t	datoff;
+	off_t	datoff;
 	size_t	datlen;
 
 	off_t	ptrval;
@@ -180,7 +181,7 @@ db_fetch(DBHANDLE h, const char *key)
 		db->cnt_fetchok++;
 	}
 
-	if (un_lock(db->idxfd, db->chainof, SEEK_SET, 1) < 0)
+	if (un_lock(db->idxfd, db->chainoff, SEEK_SET, 1) < 0)
 		err_dump("db_fetch: un_lock error");
 	return (ptr);
 }
@@ -271,9 +272,13 @@ _db_readidx(DB *db, off_t offset)
 		err_dump("_db_readidx: missing newline");
 	db->idxbuf[db->idxlen-1] = 0;
 		
-	if ((ptr = strchr(db->idxbuf, SEP)) == NULL)
+	if ((ptr1 = strchr(db->idxbuf, SEP)) == NULL)
 		err_dump("_db_readidx: missing first separator");
 	*ptr1++ = 0;
+
+	if ((ptr2 = strchr(ptr1, SEP)) == NULL)
+		err_dump("_db_readidx: missing second separator");
+	*ptr2++ = 0;
 
 	if (strchr(ptr2, SEP) != NULL)
 		err_dump("_db_readidx: too many separators");
@@ -339,7 +344,9 @@ _db_dodelete(DB *db)
 
 	saveptr = db->ptrval;
 
-	_db_writeidx(db, FREE_OFF, db->idxoff);
+	_db_writeidx(db, db->idxbuf, db->idxoff, SEEK_SET, freeptr);
+
+	_db_writeptr(db, FREE_OFF, db->idxoff);
 
 	_db_writeptr(db, db->ptroff, saveptr);
 	if (un_lock(db->idxfd, FREE_OFF, SEEK_SET, 1) < 0)
@@ -396,7 +403,7 @@ _db_writeidx(DB *db, const char *key, off_t offset, int whence, off_t ptrval)
 		if (writew_lock(db->idxfd, ((db->nhash+1)*PTR_SZ)+1, SEEK_SET, 0) < 0)
 			err_dump("_db_writeidx: writew_lock error");
 	
-	if ((db->idxoff = lseek(db->idxfd, offet, whence)) == -1)
+	if ((db->idxoff = lseek(db->idxfd, offset, whence)) == -1)
 		err_dump("_db_writeidx: lseek error");
 
 	iov[0].iov_base = asciiptrlen;
@@ -502,7 +509,7 @@ _db_findfree(DB *db, int keylen, int datlen)
 	if (writew_lock(db->idxfd, FREE_OFF, SEEK_SET, 1) < 0)
 		err_dump("_db_findfree: writew_lock error");
 
-	saveoffset = PREE_OFF;
+	saveoffset = FREE_OFF;
 	offset = _db_readptr(db, saveoffset);
 	while (offset != 0){
 		nextoffset = _db_readidx(db, offset);

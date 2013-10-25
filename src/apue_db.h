@@ -3,7 +3,7 @@
 
 typedef void *	DBHANDLE;
 
-DBHANDLE	db_open(const char*,int,...);
+DBHANDLE	db_open(const char *,int,...);
 void		db_close(DBHANDLE);
 char		*db_fetch(DBHANDLE,const char *);
 int			db_store(DBHANDLE, const char *, const char *, int);
@@ -14,7 +14,7 @@ char		*db_nextrec(DBHANDLE, char *);
 /*
  *	Flags for db_store()
  *
- * /
+ */
 #define DB_INSERT	1
 #define	DB_REPLACE	2
 #define	DB_STORE	3
