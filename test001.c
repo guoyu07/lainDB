@@ -14,6 +14,9 @@ int main(int argc, char* argv[]){
 
 	printf("%p\n", db);
 
+	if (db_store(db, "Alpha", "data1", DB_INSERT) != 0)
+		err_quit("db_store error for alpha");
+
 	db_close(db);
 
 	exit(0);

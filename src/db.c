@@ -199,6 +199,11 @@ db_fetch(DBHANDLE h, const char *key)
 	return (ptr);
 }
 
+/*
+ *参数writelock为非0，在索引文件上加写锁
+ *参数writelock为0，在索引文件上加读锁
+ *
+ */
 static int
 _db_find_and_lock(DB *db, const char *key, int writelock)
 {
@@ -208,12 +213,18 @@ _db_find_and_lock(DB *db, const char *key, int writelock)
 	db->ptroff = db->chainoff;
 
 	if (writelock) {
+		/* 添加写锁 */
+		//printf("%d\n", writew_lock(db->idxfd, db->chainoff, SEEK_SET, 1));
 		if (writew_lock(db->idxfd, db->chainoff, SEEK_SET, 1) < 0)
 			err_dump("_db_find_and_lock: writew_lock error");
 	} else {
+		/* 添加读锁 */
+		//printf("%d\n", readw_lock(db->idxfd, db->chainoff, SEEK_SET, 1));
 		if (readw_lock(db->idxfd, db->chainoff, SEEK_SET, 1) < 0)
 			err_dump("_db_find_and_lock: readw_lock error");
 	}
+
+	offset = _db_readptr(db, db->ptroff);
 
 	while (offset != 0) {
 		nextoffset = _db_readidx(db, offset);
@@ -223,8 +234,13 @@ _db_find_and_lock(DB *db, const char *key, int writelock)
 		offset = nextoffset;
 	}
 
+	//printf("%d\n",offset);
 	return (offset == 0 ? -1 : 0);
 }
+
+/*
+ *根据键计算散列值
+ */
 
 static DBHASH
 _db_hash(DB *db, const char *key)
@@ -233,8 +249,12 @@ _db_hash(DB *db, const char *key)
 	char	c;
 	int		i;
 
-	for (i = 1; (c = *key++) != 0; i++)
+	/* 键中的每一个ASCII字符乘以相应字符的索引 */
+	for (i = 1; (c = *key++) != 0; i++){
 		hval += c * i;
+		//printf("%c__%d__%d__%d\n",c,c,i,hval);
+	}
+	// db->nhash 为137，素数具有良好的分布特性
 	return (hval % db->nhash);
 }
 
@@ -251,6 +271,11 @@ _db_readptr(DB *db, off_t offset)
 	return (atol(asciiptr));
 }
 
+
+/*
+ *从索引文件的指定偏移量读取索引记录
+ *
+ */
 static off_t
 _db_readidx(DB *db, off_t offset)
 {
@@ -461,6 +486,8 @@ db_store(DBHANDLE h, const char *key, const char *data, int flag)
 	datlen = strlen(data) + 1;
 	if (datlen < DATLEN_MIN || datlen > DATLEN_MAX)
 		err_dump("db_store: invalid data lengh");
+
+	printf("%d\n", _db_find_and_lock(db, key, 1));
 
 	if (_db_find_and_lock(db, key, 1) < 0){
 		if (flag == DB_REPLACE){
