@@ -31,7 +31,10 @@ int main(int argc, char* argv[]){
 		err_quit("db_delete error");
 	}
 
-	tmp_val = db_fetch(db,"key_1");
+	if (db_store(db, "key_2", "value_2_2", DB_REPLACE) != 0)
+		err_quit("db_store error for key_1");
+
+	tmp_val = db_fetch(db,"key_2");
 	
 	printf("%s\n",tmp_val);
 	
