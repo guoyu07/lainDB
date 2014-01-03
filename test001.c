@@ -8,15 +8,33 @@
 
 int main(int argc, char* argv[]){
 	DBHANDLE	db;
+	char *tmp_val;
 
 	if ((db = db_open("data/db1", O_RDWR | O_CREAT | O_TRUNC, FILE_MODE)) == NULL)
 		err_sys("db_open error");
 
-	printf("%p\n", db);
+	//printf("%p\n", db);
+	
+	if (db_store(db, "key_1", "value_1", DB_INSERT) != 0)
+		err_quit("db_store error for key_1");
+	
+	if (db_store(db, "key_2", "value_2", DB_INSERT) != 0)
+		err_quit("db_store error for key_2");
+	if (db_store(db, "key_3", "value_3", DB_INSERT) != 0)
+		err_quit("db_store error for key_3");
 
-	if (db_store(db, "Alpha", "data1", DB_INSERT) != 0)
-		err_quit("db_store error for alpha");
+	tmp_val = db_fetch(db,"key_1");
+	
+	printf("%s\n",tmp_val);
+	
+	if (db_delete(db, "key_1") != 0){
+		err_quit("db_delete error");
+	}
 
+	tmp_val = db_fetch(db,"key_1");
+	
+	printf("%s\n",tmp_val);
+	
 	db_close(db);
 
 	exit(0);

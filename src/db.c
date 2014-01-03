@@ -289,8 +289,8 @@ _db_readidx(DB *db, off_t offset)
 
 	iov[0].iov_base = asciiptr;
 	iov[0].iov_len = PTR_SZ;
-	iov[0].iov_base = asciilen;
-	iov[0].iov_len = IDXLEN_SZ;
+	iov[1].iov_base = asciilen;
+	iov[1].iov_len = IDXLEN_SZ;
 	if ((i = readv(db->idxfd, &iov[0], 2)) != PTR_SZ + IDXLEN_SZ){
 		if(i == 0 && offset == 0)
 			return(-1);
@@ -446,8 +446,9 @@ _db_writeidx(DB *db, const char *key, off_t offset, int whence, off_t ptrval)
 
 	iov[0].iov_base = asciiptrlen;
 	iov[0].iov_len = PTR_SZ + IDXLEN_SZ;
-	iov[0].iov_base = db->idxbuf;
-	iov[0].iov_len = len;
+	iov[1].iov_base = db->idxbuf;
+	iov[1].iov_len = len;
+	
 	if (writev(db->idxfd, &iov[0], 2) != PTR_SZ + IDXLEN_SZ + len)
 		err_dump("_db_writeidx: writev error of index record");
 		
@@ -479,6 +480,7 @@ db_store(DBHANDLE h, const char *key, const char *data, int flag)
 	off_t	ptrval;
 
 	if (flag != DB_INSERT && flag != DB_REPLACE && flag != DB_STORE){
+		
 		errno = EINVAL;
 		return(-1);
 	}
@@ -487,7 +489,7 @@ db_store(DBHANDLE h, const char *key, const char *data, int flag)
 	if (datlen < DATLEN_MIN || datlen > DATLEN_MAX)
 		err_dump("db_store: invalid data lengh");
 
-	printf("%d\n", _db_find_and_lock(db, key, 1));
+	//printf("%d\n", _db_find_and_lock(db, key, 1));
 
 	if (_db_find_and_lock(db, key, 1) < 0){
 		if (flag == DB_REPLACE){
@@ -498,7 +500,7 @@ db_store(DBHANDLE h, const char *key, const char *data, int flag)
 		}
 
 		ptrval = _db_readptr(db, db->chainoff);
-
+		
 		if (_db_findfree(db, keylen, datlen) < 0){
 			_db_writedat(db, data, 0, SEEK_END);
 			_db_writeidx(db, key, 0, SEEK_END, ptrval);
